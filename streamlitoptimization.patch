@@ -1,0 +1,201 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..7a60b85
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,2 @@
++__pycache__/
++*.pyc
+diff --git a/app.py b/app.py
+index c263601..eb18c2d 100644
+--- a/app.py
++++ b/app.py
+@@ -11,6 +11,10 @@ BASE_DIR = "stock"
+ if not os.path.exists(BASE_DIR):
+     os.makedirs(BASE_DIR)
+ 
++@st.cache_data
++def load_summary_csv(csv_path):
++    return pd.read_csv(csv_path)
++
+ # ⚙️ 모바일/PC 공용 상단 컨트롤 패널
+ st.markdown("### ⚙️ 컨트롤 패널")
+ 
+@@ -25,12 +29,14 @@ if st.button("🚀 입력한 날짜의 데이터 실시간 수집/분석하기")
+     try:
+         # 입력된 날짜 유효성 검사
+         datetime.strptime(input_date, "%Y-%m-%d")
+-        with st.spinner(f"🔄 {input_date} 시점의 KOSPI/NASDAQ 데이터를 격하게 수집 중입니다... 약 30초 소요"):
++        with st.spinner(f"🔄 {input_date} 시점의 KOSPI/NASDAQ 데이터를 수집 중입니다..."):
+             main.실행하기(input_date) # 👈 main.py의 무적 폰트 엔진 가동!!
+         st.success(f"✨ {input_date} 자산 분석 및 차트 갱신 완료!")
+         st.rerun() # 화면 즉시 새로고침
+     except ValueError:
+         st.error("❌ 날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요 (예: 2026-06-15)")
++    except Exception as e:
++        st.error(f"❌ 데이터 수집 중 오류가 발생했습니다: {e}")
+ 
+ st.markdown("---")
+ 
+@@ -59,5 +65,5 @@ if selected_date and selected_date != "데이터 없음":
+     st.subheader("📋 최종 수익률 요약 테이블")
+     summary_csv_path = os.path.join(date_folder, f"market_summary_{selected_date}.csv")
+     if os.path.exists(summary_csv_path):
+-        df_summary = pd.read_csv(summary_csv_path)
++        df_summary = load_summary_csv(summary_csv_path)
+         st.dataframe(df_summary, use_container_width=True)
+diff --git a/main.py b/main.py
+index bba2cd1..0ce0891 100644
+--- a/main.py
++++ b/main.py
+@@ -1,22 +1,17 @@
++import concurrent.futures
++import datetime
+ import os
+-import sys
+-
+-# [치트키 안전장치] 라이브러리 자동 설치
+-try:
+-    import FinanceDataReader as fdr
+-    import seaborn as sns
+-except ModuleNotFoundError:
+-    os.system(f"{sys.executable} -m pip install finance-datareader seaborn")
+-    import FinanceDataReader as fdr
+-    import seaborn as sns
+ 
+-import datetime
++import FinanceDataReader as fdr
+ import matplotlib.font_manager as fm
+ import matplotlib.pyplot as plt
+ import pandas as pd
++import streamlit as st
+ import yfinance as yf
+ from tqdm import tqdm
+ 
++MAX_WORKERS = 20
++
+ # ==========================================
+ # 🔥 [경환님 전용 무적의 폰트 엔진] 온/오프라인 한글 완벽 대응
+ # ==========================================
+@@ -48,6 +43,7 @@ def 세팅_한글_폰트():
+ # ==========================================
+ # [1단계] 데이터 수집 함수 정의
+ # ==========================================
++@st.cache_data(ttl=3600, show_spinner=False)
+ def get_top_100_tickers(market_type):
+     df_stock = fdr.StockListing(market_type)
+     if market_type == "KOSPI":
+@@ -57,27 +53,48 @@ def get_top_100_tickers(market_type):
+         df_top100 = df_stock.head(100)
+         return df_top100[["Symbol", "Name"]].values.tolist()
+ 
++@st.cache_data(ttl=3600, show_spinner=False)
++def _fetch_single_close(code, start_date):
++    try:
++        df_price = fdr.DataReader(code, start=start_date)
++        return df_price["Close"] if not df_price.empty else None
++    except Exception:
++        return None
++
+ def fetch_closure_prices(ticker_list, start_date):
+-    combined_df = pd.DataFrame()
+-    for code, name in tqdm(ticker_list, desc="주가 데이터 다운로드 중"):
+-        try:
+-            df_price = fdr.DataReader(code, start=start_date)
+-            if not df_price.empty:
+-                combined_df[f"{name}({code})"] = df_price["Close"]
+-        except Exception:
+-            continue
+-    return combined_df
++    series_map = {}
++    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
++        future_to_name = {
++            executor.submit(_fetch_single_close, code, start_date): f"{name}({code})"
++            for code, name in ticker_list
++        }
++        for future in tqdm(concurrent.futures.as_completed(future_to_name), total=len(future_to_name), desc="주가 데이터 다운로드 중"):
++            close_series = future.result()
++            if close_series is not None:
++                series_map[future_to_name[future]] = close_series
++    return pd.DataFrame(series_map)
+ 
+ # ==========================================
+ # [2단계] 섹터/산업 분류 함수 정의
+ # ==========================================
++@st.cache_data(ttl=3600, show_spinner=False)
++def _get_krx_desc():
++    return fdr.StockListing("KRX-DESC")
++
++@st.cache_data(ttl=86400, show_spinner=False)
++def _fetch_nasdaq_industry(ticker):
++    try:
++        return yf.Ticker(ticker).info.get("industry", "미분류")
++    except Exception:
++        return "미분류"
++
+ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
+     kospi_sector_path = os.path.join(date_folder, "kospi_100_sectors.csv")
+     nasdaq_sector_path = os.path.join(date_folder, "nasdaq_100_sectors.csv")
+ 
+     if os.path.exists(kospi_price_csv):
+         df_k = pd.read_csv(kospi_price_csv, index_col=0)
+-        krx_desc = fdr.StockListing("KRX-DESC")
++        krx_desc = _get_krx_desc()
+         k_list = []
+         for col in df_k.columns:
+             code = col.split("(")[-1].replace(")", "")
+@@ -86,24 +103,20 @@ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
+             k_list.append({"종목명": col, "Industry": industry})
+         pd.DataFrame(k_list).to_csv(kospi_sector_path, encoding="utf-8-sig", index=False)
+ 
+-    # [개선된 NASDAQ 처리 루틴]
+     if os.path.exists(nasdaq_price_csv):
+         df_n = pd.read_csv(nasdaq_price_csv, index_col=0)
+-        
+-        # 💡 매번 yfinance를 호출하는 대신 fdr의 상위 티커 정보를 최대한 재활용하거나 
+-        # 한 번에 대량으로 메타데이터를 가져오는 fdr.StockListing('NASDAQ')의 Sector 컬럼을 맵핑합니다.
+-        df_nasdaq_meta = fdr.StockListing("NASDAQ")
+-        meta_map = dict(zip(df_nasdaq_meta['Symbol'], df_nasdaq_meta['Industry']))
+-        
+-        n_list = []
+-        for col in df_n.columns:
+-            ticker = col.split('(')[-1].replace(')', '')
+-            # 실시간 yfinance 대신 미리 받아온 메타 맵에서 0.001초만에 추출
+-            industry = meta_map.get(ticker, 'Technology' if 'Apple' in col or 'Microsoft' in col else '미분류')
+-            n_list.append({'종목명': col, 'Industry': industry})
+-        
++        tickers = [col.split("(")[-1].replace(")", "") for col in df_n.columns]
++        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
++            industries = list(tqdm(
++                executor.map(_fetch_nasdaq_industry, tickers),
++                total=len(tickers),
++                desc="나스닥 산업 정보 매핑 중",
++            ))
++        n_list = [{"종목명": col, "Industry": industry} for col, industry in zip(df_n.columns, industries)]
+         pd.DataFrame(n_list).to_csv(nasdaq_sector_path, encoding="utf-8-sig", index=False)
+-        
++
++    return kospi_sector_path, nasdaq_sector_path
++
+ # ==========================================
+ # [3단계] 수익률 분석 및 시각화 함수 정의
+ # ==========================================
+@@ -113,9 +126,6 @@ def load_industry_mapping(sector_csv):
+     return dict(zip(df_sector["종목명"], df_sector["Industry"]))
+ 
+ def generate_top10_chart(price_csv, sector_csv, market_name, date_folder, date_str):
+-    # 차트를 그릴 때 다시 한번 한글 폰트 강제 주입
+-    세팅_한글_폰트()
+-    
+     df_price = pd.read_csv(price_csv, index_col=0)
+     df_return = ((df_price / df_price.iloc[0]) - 1) * 100
+     industry_map = load_industry_mapping(sector_csv)
+diff --git a/requirements.txt b/requirements.txt
+index 6d0b21d..7947974 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,3 +1,4 @@
++streamlit
+ finance-datareader
+ yfinance
+ pandas

@@ -1,21 +1,16 @@
-import os
-import sys
-
-# [치트키 안전장치] 라이브러리 자동 설치
-try:
-    import FinanceDataReader as fdr
-    import seaborn as sns
-except ModuleNotFoundError:
-    os.system(f"{sys.executable} -m pip install finance-datareader seaborn")
-    import FinanceDataReader as fdr
-    import seaborn as sns
-
+import concurrent.futures
 import datetime
+import os
+
+import FinanceDataReader as fdr
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import pandas as pd
+import streamlit as st
 import yfinance as yf
 from tqdm import tqdm
+
+MAX_WORKERS = 20
 
 # ==========================================
 # 🔥 [경환님 전용 무적의 폰트 엔진] 온/오프라인 한글 완벽 대응
@@ -48,6 +43,7 @@ def 세팅_한글_폰트():
 # ==========================================
 # [1단계] 데이터 수집 함수 정의
 # ==========================================
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_top_100_tickers(market_type):
     df_stock = fdr.StockListing(market_type)
     if market_type == "KOSPI":
@@ -57,27 +53,48 @@ def get_top_100_tickers(market_type):
         df_top100 = df_stock.head(100)
         return df_top100[["Symbol", "Name"]].values.tolist()
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_single_close(code, start_date):
+    try:
+        df_price = fdr.DataReader(code, start=start_date)
+        return df_price["Close"] if not df_price.empty else None
+    except Exception:
+        return None
+
 def fetch_closure_prices(ticker_list, start_date):
-    combined_df = pd.DataFrame()
-    for code, name in tqdm(ticker_list, desc="주가 데이터 다운로드 중"):
-        try:
-            df_price = fdr.DataReader(code, start=start_date)
-            if not df_price.empty:
-                combined_df[f"{name}({code})"] = df_price["Close"]
-        except Exception:
-            continue
-    return combined_df
+    series_map = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_name = {
+            executor.submit(_fetch_single_close, code, start_date): f"{name}({code})"
+            for code, name in ticker_list
+        }
+        for future in tqdm(concurrent.futures.as_completed(future_to_name), total=len(future_to_name), desc="주가 데이터 다운로드 중"):
+            close_series = future.result()
+            if close_series is not None:
+                series_map[future_to_name[future]] = close_series
+    return pd.DataFrame(series_map)
 
 # ==========================================
 # [2단계] 섹터/산업 분류 함수 정의
 # ==========================================
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_krx_desc():
+    return fdr.StockListing("KRX-DESC")
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_nasdaq_industry(ticker):
+    try:
+        return yf.Ticker(ticker).info.get("industry", "미분류")
+    except Exception:
+        return "미분류"
+
 def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
     kospi_sector_path = os.path.join(date_folder, "kospi_100_sectors.csv")
     nasdaq_sector_path = os.path.join(date_folder, "nasdaq_100_sectors.csv")
 
     if os.path.exists(kospi_price_csv):
         df_k = pd.read_csv(kospi_price_csv, index_col=0)
-        krx_desc = fdr.StockListing("KRX-DESC")
+        krx_desc = _get_krx_desc()
         k_list = []
         for col in df_k.columns:
             code = col.split("(")[-1].replace(")", "")
@@ -88,14 +105,14 @@ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
 
     if os.path.exists(nasdaq_price_csv):
         df_n = pd.read_csv(nasdaq_price_csv, index_col=0)
-        n_list = []
-        for col in tqdm(df_n.columns, desc="나스닥 산업 정보 매핑 중"):
-            ticker = col.split("(")[-1].replace(")", "")
-            try:
-                industry = yf.Ticker(ticker).info.get("industry", '미분류')
-            except Exception:
-                industry = "미분류"
-            n_list.append({"종목명": col, "Industry": industry})
+        tickers = [col.split("(")[-1].replace(")", "") for col in df_n.columns]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            industries = list(tqdm(
+                executor.map(_fetch_nasdaq_industry, tickers),
+                total=len(tickers),
+                desc="나스닥 산업 정보 매핑 중",
+            ))
+        n_list = [{"종목명": col, "Industry": industry} for col, industry in zip(df_n.columns, industries)]
         pd.DataFrame(n_list).to_csv(nasdaq_sector_path, encoding="utf-8-sig", index=False)
 
     return kospi_sector_path, nasdaq_sector_path
@@ -109,9 +126,6 @@ def load_industry_mapping(sector_csv):
     return dict(zip(df_sector["종목명"], df_sector["Industry"]))
 
 def generate_top10_chart(price_csv, sector_csv, market_name, date_folder, date_str):
-    # 차트를 그릴 때 다시 한번 한글 폰트 강제 주입
-    세팅_한글_폰트()
-    
     df_price = pd.read_csv(price_csv, index_col=0)
     df_return = ((df_price / df_price.iloc[0]) - 1) * 100
     industry_map = load_industry_mapping(sector_csv)

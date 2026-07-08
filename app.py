@@ -11,6 +11,10 @@ BASE_DIR = "stock"
 if not os.path.exists(BASE_DIR):
     os.makedirs(BASE_DIR)
 
+@st.cache_data
+def load_summary_csv(csv_path):
+    return pd.read_csv(csv_path)
+
 # ⚙️ 모바일/PC 공용 상단 컨트롤 패널
 st.markdown("### ⚙️ 컨트롤 패널")
 
@@ -25,12 +29,14 @@ if st.button("🚀 입력한 날짜의 데이터 실시간 수집/분석하기")
     try:
         # 입력된 날짜 유효성 검사
         datetime.strptime(input_date, "%Y-%m-%d")
-        with st.spinner(f"🔄 {input_date} 시점의 KOSPI/NASDAQ 데이터를 격하게 수집 중입니다... 약 30초 소요"):
+        with st.spinner(f"🔄 {input_date} 시점의 KOSPI/NASDAQ 데이터를 수집 중입니다..."):
             main.실행하기(input_date) # 👈 main.py의 무적 폰트 엔진 가동!!
         st.success(f"✨ {input_date} 자산 분석 및 차트 갱신 완료!")
         st.rerun() # 화면 즉시 새로고침
     except ValueError:
         st.error("❌ 날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요 (예: 2026-06-15)")
+    except Exception as e:
+        st.error(f"❌ 데이터 수집 중 오류가 발생했습니다: {e}")
 
 st.markdown("---")
 
@@ -59,5 +65,5 @@ if selected_date and selected_date != "데이터 없음":
     st.subheader("📋 최종 수익률 요약 테이블")
     summary_csv_path = os.path.join(date_folder, f"market_summary_{selected_date}.csv")
     if os.path.exists(summary_csv_path):
-        df_summary = pd.read_csv(summary_csv_path)
+        df_summary = load_summary_csv(summary_csv_path)
         st.dataframe(df_summary, use_container_width=True)
