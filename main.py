@@ -19,27 +19,8 @@ import pandas as pd
 import yfinance as yf
 from tqdm import tqdm
 
-import matplotlib.font_manager as fm
-import matplotlib.pyplot as plt
-
-# ==========================================
-# 🎯 [클라우드 완벽 대응] 한글 폰트 절대 깨짐 방지 로직
-# ==========================================
-font_path = "NanumGothic.ttf"
-
-if os.path.exists(font_path):
-    # 1. 폰트 파일을 폰트 매니저에 직접 등록
-    fm.fontManager.addfont(font_path)
-    # 2. 등록된 폰트의 정확한 고유 이름(Name)을 가져와서 설정
-    font_name = fm.FontProperties(fname=font_path).get_name()
-    plt.rcParams["font.family"] = font_name
-    print(f"🎯 스트림릿 서버 환경: 외부 폰트 '{font_name}' 등록 및 적용 완료!")
-else:
-    # 깃허브에 파일이 없을 때 대비한 경환님 PC 로컬용 안전장치
-    plt.rcParams["font.family"] = "Malgun Gothic"
-    print("🎯 로컬 PC 환경: 시스템 폰트 'Malgun Gothic' 적용 완료!")
-
-# 마이너스 기호 깨짐 방지
+# 한글 폰트 설정 (Windows: Malgun Gothic, Mac: AppleGothic)
+plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
 
 
@@ -166,7 +147,7 @@ def main():
     print(f"==================================================")
 
     # 1. 🎯 [PB님 설정] 분석을 원하는 기준일을 지정하세요!
-    target_date_str = "2026-07-01"  # 예: "2026-06-15", "2026-07-01", "2026-07-06" 등
+    target_date_str = "2026-06-25"  # 예: "2026-06-15", "2026-07-01", "2026-07-06" 등
 
     # 메인 저장 폴더 (stock) 경로
     BASE_DIR = r"c:\Users\경환\Desktop\stock"
