@@ -20,7 +20,20 @@ import yfinance as yf
 from tqdm import tqdm
 
 # 한글 폰트 설정 (Windows: Malgun Gothic, Mac: AppleGothic)
-plt.rcParams["font.family"] = "Malgun Gothic"
+import matplotlib.font_manager as fm
+
+# [웹 서버용] 폰트 파일이 프로젝트 내에 있으면 우선 적용, 없으면 시스템 폰트 사용
+font_path = "NanumGothic.ttf"
+
+if os.path.exists(font_path):
+    # 깃허브에 올린 나눔고딕 폰트 적용 (스트림릿 서버용)
+    font_prop = fm.FontProperties(fname=font_path)
+    plt.rcParams["font.family"] = font_prop.get_name()
+    print("🎯 외부 폰트(NanumGothic) 적용 완료")
+else:
+    # 폰트 파일이 없을 때 기본 맑은 고딕 적용 (경환님 PC 로컬용 안전장치)
+    plt.rcParams["font.family"] = "Malgun Gothic"
+    print("🎯 시스템 기본 폰트(Malgun Gothic) 적용 완료")
 plt.rcParams["axes.unicode_minus"] = False
 
 
