@@ -21,7 +21,7 @@ available_dates = sorted([f for f in os.listdir(BASE_DIR) if os.path.isdir(os.pa
 input_date = st.text_input("📅 분석하고 싶은 날짜 입력 (형식: YYYY-MM-DD)", value="2026-06-03")
 
 # 2. 실시간 데이터 수집 가동 버튼
-if st.button("🚀 입력한 날짜의 데이터 실시간 수집/분역하기"):
+if st.button("🚀 입력한 날짜의 데이터 실시간 수집/분석하기"):
     try:
         # 입력된 날짜 유효성 검사
         datetime.strptime(input_date, "%Y-%m-%d")
