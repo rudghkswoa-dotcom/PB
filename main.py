@@ -86,7 +86,7 @@ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
             k_list.append({"종목명": col, "Industry": industry})
         pd.DataFrame(k_list).to_csv(kospi_sector_path, encoding="utf-8-sig", index=False)
 
-  if os.path.exists(nasdaq_price_csv):
+    if os.path.exists(nasdaq_price_csv):
         df_n = pd.read_csv(nasdaq_price_csv, index_col=0)
         n_list = []
         for col in tqdm(df_n.columns, desc="나스닥 산업 정보 매핑 중"):
@@ -99,7 +99,7 @@ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
         pd.DataFrame(n_list).to_csv(nasdaq_sector_path, encoding="utf-8-sig", index=False)
 
     return kospi_sector_path, nasdaq_sector_path
-        
+
 # ==========================================
 # [3단계] 수익률 분석 및 시각화 함수 정의
 # ==========================================
