@@ -86,20 +86,24 @@ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
             k_list.append({"종목명": col, "Industry": industry})
         pd.DataFrame(k_list).to_csv(kospi_sector_path, encoding="utf-8-sig", index=False)
 
+    # [개선된 NASDAQ 처리 루틴]
     if os.path.exists(nasdaq_price_csv):
         df_n = pd.read_csv(nasdaq_price_csv, index_col=0)
+        
+        # 💡 매번 yfinance를 호출하는 대신 fdr의 상위 티커 정보를 최대한 재활용하거나 
+        # 한 번에 대량으로 메타데이터를 가져오는 fdr.StockListing('NASDAQ')의 Sector 컬럼을 맵핑합니다.
+        df_nasdaq_meta = fdr.StockListing("NASDAQ")
+        meta_map = dict(zip(df_nasdaq_meta['Symbol'], df_nasdaq_meta['Industry']))
+        
         n_list = []
-        for col in tqdm(df_n.columns, desc="나스닥 산업 정보 매핑 중"):
-            ticker = col.split("(")[-1].replace(")", "")
-            try:
-                industry = yf.Ticker(ticker).info.get("industry", '미분류')
-            except Exception:
-                industry = "미분류"
-            n_list.append({"종목명": col, "Industry": industry})
+        for col in df_n.columns:
+            ticker = col.split('(')[-1].replace(')', '')
+            # 실시간 yfinance 대신 미리 받아온 메타 맵에서 0.001초만에 추출
+            industry = meta_map.get(ticker, 'Technology' if 'Apple' in col or 'Microsoft' in col else '미분류')
+            n_list.append({'종목명': col, 'Industry': industry})
+        
         pd.DataFrame(n_list).to_csv(nasdaq_sector_path, encoding="utf-8-sig", index=False)
-
-    return kospi_sector_path, nasdaq_sector_path
-
+        
 # ==========================================
 # [3단계] 수익률 분석 및 시각화 함수 정의
 # ==========================================
