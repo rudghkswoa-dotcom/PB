@@ -31,6 +31,7 @@ if st.button("🚀 입력한 날짜의 데이터 실시간 수집/분석하기")
         with st.spinner(f"🔄 {input_date} 시점의 KOSPI/NASDAQ 데이터를 수집 중입니다..."):
             main.실행하기(input_date) # 👈 main.py의 무적 폰트 엔진 가동!!
         st.success(f"✨ {input_date} 자산 분석 및 차트 갱신 완료!")
+        st.session_state["selected_date_box"] = input_date  # 👈 방금 수집한 날짜를 아래 조회창에 자동 선택
         st.rerun() # 화면 즉시 새로고침
     except Exception as e:
         st.error(f"❌ 데이터 수집 중 오류가 발생했습니다: {e}")
@@ -38,7 +39,11 @@ if st.button("🚀 입력한 날짜의 데이터 실시간 수집/분석하기")
 st.markdown("---")
 
 # 3. 과거 기록 조회용 셀렉트 박스
-selected_date = st.selectbox("📂 이미 수집된 과거 분석 일자 선택 조회", available_dates if available_dates else ["데이터 없음"])
+selected_date = st.selectbox(
+    "📂 이미 수집된 과거 분석 일자 선택 조회",
+    available_dates if available_dates else ["데이터 없음"],
+    key="selected_date_box",
+)
 
 # 4. 차트 및 표 시각화 출력부
 if selected_date and selected_date != "데이터 없음":
