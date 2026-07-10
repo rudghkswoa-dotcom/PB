@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import date, datetime
 import main  # 👈 우리가 고친 주가 수집 엔진(main.py)을 웹에 연결!!
 
 st.set_page_config(page_title="PB 주도 섹터 분석 대시보드", layout="wide")
@@ -21,20 +21,17 @@ st.markdown("### ⚙️ 컨트롤 패널")
 # 수집된 날짜 폴더 목록 자동 갱신
 available_dates = sorted([f for f in os.listdir(BASE_DIR) if os.path.isdir(os.path.join(BASE_DIR, f))], reverse=True)
 
-# 1. 사용자가 날짜를 마음대로 입력하거나 선택할 수 있는 창
-input_date = st.text_input("📅 분석하고 싶은 날짜 입력 (형식: YYYY-MM-DD)", value="2026-06-03")
+# 1. 사용자가 날짜를 선택할 수 있는 달력 위젯 (직접 타이핑 시 발생하는 형식 오류 원천 차단)
+input_date_obj = st.date_input("📅 분석하고 싶은 날짜 선택", value=date(2026, 6, 3))
+input_date = input_date_obj.strftime("%Y-%m-%d")
 
 # 2. 실시간 데이터 수집 가동 버튼
 if st.button("🚀 입력한 날짜의 데이터 실시간 수집/분석하기"):
     try:
-        # 입력된 날짜 유효성 검사
-        datetime.strptime(input_date, "%Y-%m-%d")
         with st.spinner(f"🔄 {input_date} 시점의 KOSPI/NASDAQ 데이터를 수집 중입니다..."):
             main.실행하기(input_date) # 👈 main.py의 무적 폰트 엔진 가동!!
         st.success(f"✨ {input_date} 자산 분석 및 차트 갱신 완료!")
         st.rerun() # 화면 즉시 새로고침
-    except ValueError:
-        st.error("❌ 날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요 (예: 2026-06-15)")
     except Exception as e:
         st.error(f"❌ 데이터 수집 중 오류가 발생했습니다: {e}")
 
@@ -54,12 +51,16 @@ if selected_date and selected_date != "데이터 없음":
         kospi_img_path = os.path.join(date_folder, f"kospi_top10_returns_{selected_date}.png")
         if os.path.exists(kospi_img_path):
             st.image(kospi_img_path, use_container_width=True)
-            
+        else:
+            st.info("⚠️ 이 날짜의 KOSPI 차트가 아직 생성되지 않았습니다. 상단에서 다시 수집해주세요.")
+
     with col2:
         st.subheader("🇺🇸 NASDAQ 수익률 상위 10 추이")
         nasdaq_img_path = os.path.join(date_folder, f"nasdaq_top10_returns_{selected_date}.png")
         if os.path.exists(nasdaq_img_path):
             st.image(nasdaq_img_path, use_container_width=True)
+        else:
+            st.info("⚠️ 이 날짜의 NASDAQ 차트가 아직 생성되지 않았습니다. 상단에서 다시 수집해주세요.")
 
     st.markdown("---")
     st.subheader("📋 최종 수익률 요약 테이블")
@@ -67,3 +68,5 @@ if selected_date and selected_date != "데이터 없음":
     if os.path.exists(summary_csv_path):
         df_summary = load_summary_csv(summary_csv_path)
         st.dataframe(df_summary, use_container_width=True)
+    else:
+        st.info("⚠️ 이 날짜의 요약 테이블이 아직 생성되지 않았습니다. 상단에서 다시 수집해주세요.")
