@@ -43,13 +43,36 @@ def 세팅_한글_폰트():
 # ==========================================
 # [1단계] 데이터 수집 함수 정의
 # ==========================================
+# fdr.StockListing("KOSPI")/("KRX-DESC")는 실제 데이터를 아래와 같은 GitHub 캐시 CSV에서
+# 가져오면서도, "최신 날짜가 며칠인지"만 확인하려고 data.krx.co.kr의 낡은 리소스번들 API를
+# 매번 호출한다. 이 API가 자주 응답 실패/차단되어 전체 수집이 죽는 문제가 있어,
+# 같은 GitHub 캐시를 최신 날짜부터 역순으로 직접 조회해 그 호출 자체를 우회한다.
+KRX_CACHE_BASE = "https://raw.githubusercontent.com/FinanceData/fdr_krx_data_cache/refs/heads/master/data/listing"
+
+def _fetch_krx_cache_csv(subdir, lookback_days=15, **read_csv_kwargs):
+    last_err = None
+    today = datetime.date.today()
+    for i in range(lookback_days):
+        target_date = today - datetime.timedelta(days=i)
+        url = f"{KRX_CACHE_BASE}/{subdir}/{target_date.isoformat()}.csv"
+        try:
+            df = pd.read_csv(url, index_col=0, **read_csv_kwargs)
+            return df.reset_index(drop=True)
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"최근 {lookback_days}일 내 KRX 캐시 데이터를 찾지 못했습니다.") from last_err
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_top_100_tickers(market_type):
-    df_stock = fdr.StockListing(market_type)
     if market_type == "KOSPI":
+        df_stock = _fetch_krx_cache_csv(
+            "krx", dtype={"Code": str, "Dept": str, "ChangeCode": str, "MarketId": str}
+        )
+        df_stock = df_stock[df_stock["MarketId"] == "STK"].reset_index(drop=True)
         df_top100 = df_stock.sort_values(by="Marcap", ascending=False).head(100)
         return df_top100[["Code", "Name"]].values.tolist()
     elif market_type == "NASDAQ":
+        df_stock = fdr.StockListing(market_type)
         df_top100 = df_stock.head(100)
         return df_top100[["Symbol", "Name"]].values.tolist()
 
@@ -79,7 +102,7 @@ def fetch_closure_prices(ticker_list, start_date):
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_krx_desc():
-    return fdr.StockListing("KRX-DESC")
+    return _fetch_krx_cache_csv("desc", dtype={"Code": str})
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _fetch_nasdaq_industry(ticker):
