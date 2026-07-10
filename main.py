@@ -159,42 +159,50 @@ def 실행하기(지정날짜):
     # 📁 경로 규칙 자동 설정 (상대경로 매핑으로 웹/로컬 공용화)
     BASE_DIR = "stock"
     DATE_DIR = os.path.join(BASE_DIR, 지정날짜)
-    if not os.path.exists(DATE_DIR):
+    is_new_dir = not os.path.exists(DATE_DIR)
+    if is_new_dir:
         os.makedirs(DATE_DIR)
 
-    today_standard = datetime.datetime.strptime(지정날짜, "%Y-%m-%d")
-    start_date = (today_standard - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
+    try:
+        today_standard = datetime.datetime.strptime(지정날짜, "%Y-%m-%d")
+        start_date = (today_standard - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
 
-    kospi_100 = get_top_100_tickers("KOSPI")
-    nasdaq_100 = get_top_100_tickers("NASDAQ")
+        kospi_100 = get_top_100_tickers("KOSPI")
+        nasdaq_100 = get_top_100_tickers("NASDAQ")
 
-    kospi_prices_raw = fetch_closure_prices(kospi_100, start_date)
-    nasdaq_prices_raw = fetch_closure_prices(nasdaq_100, start_date)
+        kospi_prices_raw = fetch_closure_prices(kospi_100, start_date)
+        nasdaq_prices_raw = fetch_closure_prices(nasdaq_100, start_date)
 
-    kospi_prices_raw.index = pd.to_datetime(kospi_prices_raw.index)
-    nasdaq_prices_raw.index = pd.to_datetime(nasdaq_prices_raw.index)
+        kospi_prices_raw.index = pd.to_datetime(kospi_prices_raw.index)
+        nasdaq_prices_raw.index = pd.to_datetime(nasdaq_prices_raw.index)
 
-    kospi_prices = kospi_prices_raw.loc[:today_standard].tail(20)
-    nasdaq_prices = nasdaq_prices_raw.loc[:today_standard].tail(20)
+        kospi_prices = kospi_prices_raw.loc[:today_standard].tail(20)
+        nasdaq_prices = nasdaq_prices_raw.loc[:today_standard].tail(20)
 
-    kospi_prices.index = kospi_prices.index.strftime("%Y-%m-%d")
-    nasdaq_prices.index = nasdaq_prices.index.strftime("%Y-%m-%d")
+        kospi_prices.index = kospi_prices.index.strftime("%Y-%m-%d")
+        nasdaq_prices.index = nasdaq_prices.index.strftime("%Y-%m-%d")
 
-    kospi_price_csv = os.path.join(DATE_DIR, f"kospi_prices_{지정날짜}.csv")
-    nasdaq_price_csv = os.path.join(DATE_DIR, f"nasdaq_prices_{지정날짜}.csv")
-    kospi_prices.to_csv(kospi_price_csv, encoding="utf-8-sig")
-    nasdaq_prices.to_csv(nasdaq_price_csv, encoding="utf-8-sig")
+        kospi_price_csv = os.path.join(DATE_DIR, f"kospi_prices_{지정날짜}.csv")
+        nasdaq_price_csv = os.path.join(DATE_DIR, f"nasdaq_prices_{지정날짜}.csv")
+        kospi_prices.to_csv(kospi_price_csv, encoding="utf-8-sig")
+        nasdaq_prices.to_csv(nasdaq_price_csv, encoding="utf-8-sig")
 
-    kospi_sector_csv, nasdaq_sector_csv = process_sectors(kospi_price_csv, nasdaq_price_csv, DATE_DIR)
+        kospi_sector_csv, nasdaq_sector_csv = process_sectors(kospi_price_csv, nasdaq_price_csv, DATE_DIR)
 
-    kospi_returns = generate_top10_chart(kospi_price_csv, kospi_sector_csv, "KOSPI", DATE_DIR, 지정날짜)
-    nasdaq_returns = generate_top10_chart(nasdaq_price_csv, nasdaq_sector_csv, "NASDAQ", DATE_DIR, 지정날짜)
+        kospi_returns = generate_top10_chart(kospi_price_csv, kospi_sector_csv, "KOSPI", DATE_DIR, 지정날짜)
+        nasdaq_returns = generate_top10_chart(nasdaq_price_csv, nasdaq_sector_csv, "NASDAQ", DATE_DIR, 지정날짜)
 
-    summary_df = pd.DataFrame({
-        "KOSPI_최종수익률(%)": kospi_returns.iloc[-1],
-        "NASDAQ_최종수익률(%)": nasdaq_returns.iloc[-1],
-    })
-    summary_df.to_csv(os.path.join(DATE_DIR, f"market_summary_{지정날짜}.csv"), encoding="utf-8-sig")
+        summary_df = pd.DataFrame({
+            "KOSPI_최종수익률(%)": kospi_returns.iloc[-1],
+            "NASDAQ_최종수익률(%)": nasdaq_returns.iloc[-1],
+        })
+        summary_df.to_csv(os.path.join(DATE_DIR, f"market_summary_{지정날짜}.csv"), encoding="utf-8-sig")
+    except Exception:
+        # 이번 호출에서 새로 만든 폴더인데 끝까지 못 채웠다면, 빈 폴더가 선택 목록에
+        # "데이터 있음"처럼 남아있지 않도록 정리하고 원래 예외를 그대로 올린다.
+        if is_new_dir and os.path.exists(DATE_DIR) and not os.listdir(DATE_DIR):
+            os.rmdir(DATE_DIR)
+        raise
 
 if __name__ == "__main__":
     # 로컬에서 단독 테스트할 때용 (날짜 바꾸기 가능)
