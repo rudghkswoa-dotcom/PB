@@ -71,7 +71,10 @@ def fetch_closure_prices(ticker_list, start_date):
 # ==========================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_krx_desc():
-    return fdr.StockListing("KRX-DESC")
+    try:
+        return fdr.StockListing("KRX-DESC")
+    except Exception:
+        return None
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _fetch_nasdaq_industry(ticker):
@@ -89,9 +92,11 @@ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
         krx_desc = _get_krx_desc()
         k_list = []
         for col in df_k.columns:
-            code = col.split("(")[-1].replace(")", "")
-            match = krx_desc[krx_desc["Code"] == code]
-            industry = match["Industry"].values[0] if not match.empty else "미분류"
+            industry = "미분류"
+            if krx_desc is not None:
+                code = col.split("(")[-1].replace(")", "")
+                match = krx_desc[krx_desc["Code"] == code]
+                industry = match["Industry"].values[0] if not match.empty else "미분류"
             k_list.append({"종목명": col, "Industry": industry})
         pd.DataFrame(k_list).to_csv(kospi_sector_path, encoding="utf-8-sig", index=False)
 
