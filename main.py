@@ -1,4 +1,3 @@
-import concurrent.futures
 import datetime
 import os
 
@@ -9,8 +8,6 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 from tqdm import tqdm
-
-MAX_WORKERS = 5
 
 # ==========================================
 # 🔥 [경환님 전용 무적의 폰트 엔진] 온/오프라인 한글 완벽 대응
@@ -63,15 +60,10 @@ def _fetch_single_close(code, start_date):
 
 def fetch_closure_prices(ticker_list, start_date):
     series_map = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_name = {
-            executor.submit(_fetch_single_close, code, start_date): f"{name}({code})"
-            for code, name in ticker_list
-        }
-        for future in tqdm(concurrent.futures.as_completed(future_to_name), total=len(future_to_name), desc="주가 데이터 다운로드 중"):
-            close_series = future.result()
-            if close_series is not None:
-                series_map[future_to_name[future]] = close_series
+    for code, name in tqdm(ticker_list, desc="주가 데이터 다운로드 중"):
+        close_series = _fetch_single_close(code, start_date)
+        if close_series is not None:
+            series_map[f"{name}({code})"] = close_series
     return pd.DataFrame(series_map)
 
 # ==========================================
@@ -106,12 +98,7 @@ def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
     if os.path.exists(nasdaq_price_csv):
         df_n = pd.read_csv(nasdaq_price_csv, index_col=0)
         tickers = [col.split("(")[-1].replace(")", "") for col in df_n.columns]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            industries = list(tqdm(
-                executor.map(_fetch_nasdaq_industry, tickers),
-                total=len(tickers),
-                desc="나스닥 산업 정보 매핑 중",
-            ))
+        industries = [_fetch_nasdaq_industry(t) for t in tqdm(tickers, desc="나스닥 산업 정보 매핑 중")]
         n_list = [{"종목명": col, "Industry": industry} for col, industry in zip(df_n.columns, industries)]
         pd.DataFrame(n_list).to_csv(nasdaq_sector_path, encoding="utf-8-sig", index=False)
 
