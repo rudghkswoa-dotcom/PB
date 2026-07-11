@@ -83,31 +83,29 @@ def _fetch_nasdaq_industry(ticker):
     except Exception:
         return "미분류"
 
-def process_sectors(kospi_price_csv, nasdaq_price_csv, date_folder):
-    kospi_sector_path = os.path.join(date_folder, "kospi_100_sectors.csv")
-    nasdaq_sector_path = os.path.join(date_folder, "nasdaq_100_sectors.csv")
+def build_kospi_sector_csv(price_csv, date_folder):
+    sector_path = os.path.join(date_folder, "kospi_100_sectors.csv")
+    df_k = pd.read_csv(price_csv, index_col=0)
+    krx_desc = _get_krx_desc()
+    k_list = []
+    for col in df_k.columns:
+        industry = "미분류"
+        if krx_desc is not None:
+            code = col.split("(")[-1].replace(")", "")
+            match = krx_desc[krx_desc["Code"] == code]
+            industry = match["Industry"].values[0] if not match.empty else "미분류"
+        k_list.append({"종목명": col, "Industry": industry})
+    pd.DataFrame(k_list).to_csv(sector_path, encoding="utf-8-sig", index=False)
+    return sector_path
 
-    if os.path.exists(kospi_price_csv):
-        df_k = pd.read_csv(kospi_price_csv, index_col=0)
-        krx_desc = _get_krx_desc()
-        k_list = []
-        for col in df_k.columns:
-            industry = "미분류"
-            if krx_desc is not None:
-                code = col.split("(")[-1].replace(")", "")
-                match = krx_desc[krx_desc["Code"] == code]
-                industry = match["Industry"].values[0] if not match.empty else "미분류"
-            k_list.append({"종목명": col, "Industry": industry})
-        pd.DataFrame(k_list).to_csv(kospi_sector_path, encoding="utf-8-sig", index=False)
-
-    if os.path.exists(nasdaq_price_csv):
-        df_n = pd.read_csv(nasdaq_price_csv, index_col=0)
-        tickers = [col.split("(")[-1].replace(")", "") for col in df_n.columns]
-        industries = [_fetch_nasdaq_industry(t) for t in tqdm(tickers, desc="나스닥 산업 정보 매핑 중")]
-        n_list = [{"종목명": col, "Industry": industry} for col, industry in zip(df_n.columns, industries)]
-        pd.DataFrame(n_list).to_csv(nasdaq_sector_path, encoding="utf-8-sig", index=False)
-
-    return kospi_sector_path, nasdaq_sector_path
+def build_nasdaq_sector_csv(price_csv, date_folder):
+    sector_path = os.path.join(date_folder, "nasdaq_100_sectors.csv")
+    df_n = pd.read_csv(price_csv, index_col=0)
+    tickers = [col.split("(")[-1].replace(")", "") for col in df_n.columns]
+    industries = [_fetch_nasdaq_industry(t) for t in tqdm(tickers, desc="나스닥 산업 정보 매핑 중")]
+    n_list = [{"종목명": col, "Industry": industry} for col, industry in zip(df_n.columns, industries)]
+    pd.DataFrame(n_list).to_csv(sector_path, encoding="utf-8-sig", index=False)
+    return sector_path
 
 # ==========================================
 # [3단계] 수익률 분석 및 시각화 함수 정의
@@ -147,6 +145,11 @@ def generate_top10_chart(price_csv, sector_csv, market_name, date_folder, date_s
 # ==========================================
 # [실행부 엔트리포인트] 외부 입력 대응용 함수화
 # ==========================================
+MARKET_SECTOR_BUILDERS = {
+    "KOSPI": build_kospi_sector_csv,
+    "NASDAQ": build_nasdaq_sector_csv,
+}
+
 def 실행하기(지정날짜):
     # 📁 경로 규칙 자동 설정 (상대경로 매핑으로 웹/로컬 공용화)
     BASE_DIR = "stock"
@@ -157,34 +160,30 @@ def 실행하기(지정날짜):
     today_standard = datetime.datetime.strptime(지정날짜, "%Y-%m-%d")
     start_date = (today_standard - datetime.timedelta(days=40)).strftime("%Y-%m-%d")
 
-    kospi_100 = get_top_100_tickers("KOSPI")
-    nasdaq_100 = get_top_100_tickers("NASDAQ")
+    returns_by_market = {}
+    for market, build_sector_csv in MARKET_SECTOR_BUILDERS.items():
+        try:
+            tickers = get_top_100_tickers(market)
+            prices_raw = fetch_closure_prices(tickers, start_date)
+            prices_raw.index = pd.to_datetime(prices_raw.index)
 
-    kospi_prices_raw = fetch_closure_prices(kospi_100, start_date)
-    nasdaq_prices_raw = fetch_closure_prices(nasdaq_100, start_date)
+            prices = prices_raw.loc[:today_standard].tail(20)
+            prices.index = prices.index.strftime("%Y-%m-%d")
 
-    kospi_prices_raw.index = pd.to_datetime(kospi_prices_raw.index)
-    nasdaq_prices_raw.index = pd.to_datetime(nasdaq_prices_raw.index)
+            price_csv = os.path.join(DATE_DIR, f"{market.lower()}_prices_{지정날짜}.csv")
+            prices.to_csv(price_csv, encoding="utf-8-sig")
 
-    kospi_prices = kospi_prices_raw.loc[:today_standard].tail(20)
-    nasdaq_prices = nasdaq_prices_raw.loc[:today_standard].tail(20)
+            sector_csv = build_sector_csv(price_csv, DATE_DIR)
+            returns_by_market[market] = generate_top10_chart(price_csv, sector_csv, market, DATE_DIR, 지정날짜)
+        except Exception as e:
+            print(f"⚠️ {market} 데이터 수집 실패, 건너뜁니다: {e}")
 
-    kospi_prices.index = kospi_prices.index.strftime("%Y-%m-%d")
-    nasdaq_prices.index = nasdaq_prices.index.strftime("%Y-%m-%d")
-
-    kospi_price_csv = os.path.join(DATE_DIR, f"kospi_prices_{지정날짜}.csv")
-    nasdaq_price_csv = os.path.join(DATE_DIR, f"nasdaq_prices_{지정날짜}.csv")
-    kospi_prices.to_csv(kospi_price_csv, encoding="utf-8-sig")
-    nasdaq_prices.to_csv(nasdaq_price_csv, encoding="utf-8-sig")
-
-    kospi_sector_csv, nasdaq_sector_csv = process_sectors(kospi_price_csv, nasdaq_price_csv, DATE_DIR)
-
-    kospi_returns = generate_top10_chart(kospi_price_csv, kospi_sector_csv, "KOSPI", DATE_DIR, 지정날짜)
-    nasdaq_returns = generate_top10_chart(nasdaq_price_csv, nasdaq_sector_csv, "NASDAQ", DATE_DIR, 지정날짜)
+    if not returns_by_market:
+        raise RuntimeError("KOSPI/NASDAQ 데이터를 모두 가져오지 못했습니다. 잠시 후 다시 시도해주세요.")
 
     summary_df = pd.DataFrame({
-        "KOSPI_최종수익률(%)": kospi_returns.iloc[-1],
-        "NASDAQ_최종수익률(%)": nasdaq_returns.iloc[-1],
+        f"{market}_최종수익률(%)": returns.iloc[-1]
+        for market, returns in returns_by_market.items()
     })
     summary_df.to_csv(os.path.join(DATE_DIR, f"market_summary_{지정날짜}.csv"), encoding="utf-8-sig")
 
