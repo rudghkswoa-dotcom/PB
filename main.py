@@ -40,13 +40,38 @@ def 세팅_한글_폰트():
 # ==========================================
 # [1단계] 데이터 수집 함수 정의
 # ==========================================
+def _fetch_kospi_listing_from_github_cache(max_days_back=10):
+    # fdr.StockListing("KOSPI")는 내부적으로 KRX 리소스번들 API를 먼저 호출해
+    # 최신 거래일자를 알아낸 뒤, GitHub에 미리 저장된 CSV를 읽는다.
+    # 그 KRX API가 불안정할 때를 대비해, 최근 영업일을 직접 훑어 같은 CSV를
+    # 바로 읽어오는 우회 경로.
+    last_error = None
+    today = datetime.datetime.now()
+    for offset in range(max_days_back):
+        day = today - datetime.timedelta(days=offset)
+        if day.weekday() >= 5:  # 토, 일 제외
+            continue
+        date_str = day.strftime("%Y-%m-%d")
+        csv_url = f"https://raw.githubusercontent.com/FinanceData/fdr_krx_data_cache/refs/heads/master/data/listing/krx/{date_str}.csv"
+        try:
+            df = pd.read_csv(csv_url, index_col=0, dtype={"Code": str, "Dept": str, "ChangeCode": str, "MarketId": str})
+            return df.reset_index(drop=True)
+        except Exception as e:
+            last_error = e
+    raise RuntimeError(f"KOSPI 종목 리스트를 가져오지 못했습니다: {last_error}")
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_top_100_tickers(market_type):
-    df_stock = fdr.StockListing(market_type)
     if market_type == "KOSPI":
+        try:
+            df_stock = fdr.StockListing(market_type)
+        except Exception:
+            df_stock = _fetch_kospi_listing_from_github_cache()
+            df_stock = df_stock[df_stock["MarketId"] == "STK"].reset_index(drop=True)
         df_top100 = df_stock.sort_values(by="Marcap", ascending=False).head(100)
         return df_top100[["Code", "Name"]].values.tolist()
     elif market_type == "NASDAQ":
+        df_stock = fdr.StockListing(market_type)
         df_top100 = df_stock.head(100)
         return df_top100[["Symbol", "Name"]].values.tolist()
 
