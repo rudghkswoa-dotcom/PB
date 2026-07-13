@@ -94,12 +94,30 @@ def fetch_closure_prices(ticker_list, start_date):
 # ==========================================
 # [2단계] 섹터/산업 분류 함수 정의
 # ==========================================
+def _fetch_krx_desc_from_github_cache(max_days_back=10):
+    # fdr.StockListing("KRX-DESC")와 동일한 이유(KRX 리소스번들 API 불안정)로
+    # 최근 영업일을 직접 훑어 GitHub 캐시 CSV에서 산업 분류를 바로 읽어오는 우회 경로.
+    last_error = None
+    today = datetime.datetime.now()
+    for offset in range(max_days_back):
+        day = today - datetime.timedelta(days=offset)
+        if day.weekday() >= 5:  # 토, 일 제외
+            continue
+        date_str = day.strftime("%Y-%m-%d")
+        csv_url = f"https://raw.githubusercontent.com/FinanceData/fdr_krx_data_cache/refs/heads/master/data/listing/desc/{date_str}.csv"
+        try:
+            return pd.read_csv(csv_url, index_col=0, dtype={"Code": str})
+        except Exception as e:
+            last_error = e
+    print(f"⚠️ KRX 산업 분류 정보를 가져오지 못했습니다: {last_error}")
+    return None
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_krx_desc():
     try:
         return fdr.StockListing("KRX-DESC")
     except Exception:
-        return None
+        return _fetch_krx_desc_from_github_cache()
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def _fetch_nasdaq_industry(ticker):
